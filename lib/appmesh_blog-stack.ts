@@ -6,7 +6,8 @@ import ecsPatterns = require("@aws-cdk/aws-ecs-patterns");
 import appmesh = require('@aws-cdk/aws-appmesh');
 import elbv2 = require('@aws-cdk/aws-elasticloadbalancingv2');
 import servicediscovery = require('@aws-cdk/aws-servicediscovery');
-import ssm = require('@aws-cdk/aws-ssm');
+import cloudwatch = require('@aws-cdk/aws-cloudwatch');
+import iam = require('@aws-cdk/aws-iam');
 
 /******************************************************************************
 *************************** Ec2AppMeshService *********************************
@@ -20,7 +21,6 @@ export interface AppMeshServiceProps {
 }
 
 export class Ec2AppMeshService extends cdk.Construct {
-	
   // Members of the class
   ecsService: ecs.Ec2Service;
   serviceName: string;
@@ -34,37 +34,45 @@ export class Ec2AppMeshService extends cdk.Construct {
   
   constructor(scope: cdk.Construct, id: string, props: AppMeshServiceProps) {
     super(scope, id);
-  /*  ecsService: ecs.Ec2Service;
-    serviceName: string;
-    virtualNode: appmesh.VirtualNode; */
-	this.serviceName = id;
-	this.portNumber = props.portNumber;
-    //const appMeshRepository = ecs.ContainerImage.fromRegistry("envoyproxy/envoy:v1.12.2");
-	const appMeshRepository = ecr.Repository.fromRepositoryArn(this, 'app-mesh-envoy', 'arn:aws:ecr:us-west-2:840364872350:repository/aws-appmesh-envoy');
-	// 840364872350.dkr.ecr.us-west-2.amazonaws.com/aws-appmesh-envoy:v1.12.1.1-prod
-    const cluster = props.cluster;
-    const mesh = props.mesh;
-    const applicationContainer = props.applicationContainer;
-	
-	//const svcnamespace = props.svcnamespace;
-	this.taskDefinition = new ecs.Ec2TaskDefinition(this, `${this.serviceName}-task-definition`, {
-      networkMode: ecs.NetworkMode.AWS_VPC,
-      proxyConfiguration: new ecs.AppMeshProxyConfiguration({
-        containerName: 'envoy',
-        properties: {
-          appPorts: [this.portNumber],
-          proxyEgressPort: 15001,
-          proxyIngressPort: 15000,
-          ignoredUID: 1337,
-          egressIgnoredIPs: [
-            '169.254.170.2',
-            '169.254.169.254'
-          ]
-        }
-      }) 
-    });
+    this.serviceName = id;
+    this.portNumber = props.portNumber;
 
-	// Set-up application container, which was passed in from caller.
+    const appMeshRepository = ecr.Repository.fromRepositoryArn(this, 'app-mesh-envoy', 'arn:aws:ecr:us-west-2:840364872350:repository/aws-appmesh-envoy');
+      const cluster = props.cluster;
+      const mesh = props.mesh;
+      const applicationContainer = props.applicationContainer;
+  
+    // We need to create a new ECS task role, which allows the task to push metrics into CloudWatch
+    // and read from AppMesh for Envoy access.
+    const taskIAMRole = new iam.Role(this, 'ECSTaskRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com')
+    });
+    taskIAMRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'));
+    taskIAMRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AWSAppMeshEnvoyAccess'));
+    /*
+    taskIAMRole.addToPolicy(new iam.PolicyStatement({
+      resources: ['*'],
+      actions: ['lambda:InvokeFunction'] })); */
+    
+    this.taskDefinition = new ecs.Ec2TaskDefinition(this, `${this.serviceName}-task-definition`, {
+        taskRole: taskIAMRole,
+        networkMode: ecs.NetworkMode.AWS_VPC,
+        proxyConfiguration: new ecs.AppMeshProxyConfiguration({
+          containerName: 'envoy',
+          properties: {
+            appPorts: [this.portNumber],
+            proxyEgressPort: 15001,
+            proxyIngressPort: 15000,
+            ignoredUID: 1337,
+            egressIgnoredIPs: [
+              '169.254.170.2',
+              '169.254.169.254'
+            ]
+          }
+        }) 
+      });
+
+	  // Set-up application container, which was passed in from caller.
     this.applicationContainer = this.taskDefinition.addContainer('app', applicationContainer);
     this.applicationContainer.addPortMappings({
       containerPort: this.portNumber,
@@ -107,19 +115,26 @@ export class Ec2AppMeshService extends cdk.Construct {
       // 'version' can be specified but is optional.
 		//}).stringValue;	
     this.cwAgentContainer = this.taskDefinition.addContainer('cloudwatch-agent', {
-		image: ecs.ContainerImage.fromRegistry("amazon/cloudwatch-agent:latest"),
-		memoryLimitMiB: 512,
-		essential: false,
-		environment: { 
-			CW_CONFIG_CONTENT: '{"agent": {"omit_hostname": true, \
-			"region": "us-west-2", \
-			"logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log", \
-            "debug": true}, \
-			"metrics": {"metrics_collected": {"statsd": \
-			{"service_address":":8125","metrics_collection_interval":10, \
-            "metrics_aggregation_interval":60}}}}'
-		}
-	});  
+      image: ecs.ContainerImage.fromRegistry("amazon/cloudwatch-agent:latest"),
+      memoryLimitMiB: 512,
+      essential: false,
+          logging: new ecs.AwsLogDriver({
+            streamPrefix: `${this.serviceName}-cwagent`
+          }),
+      environment: { 
+        CW_CONFIG_CONTENT: '{ "logs": { "metrics_collected": {"emf": {} }}, "metrics": { "metrics_collected": { "statsd": {}}}}'
+        /* 
+        '{"agent": {"omit_hostname": true, \
+        "region": "us-west-2", \
+        "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log", \
+              "debug": true}, \
+        "logs": { "metrics_collected": { "emf": {} } }, \
+        "metrics": { "metrics_collected": {"statsd": \
+        {"service_address":":8125","metrics_collection_interval": 10, \
+              "metrics_aggregation_interval": 60 }}}}'
+      */
+      }
+	  });  
 
 	// Set start-up order of containers
     this.applicationContainer.addContainerDependencies(
@@ -523,6 +538,54 @@ export class AppmeshBlogStack extends cdk.Stack {
 	  //targetType: elasticloadbalancingv2.TargetType.IP // Fargate
     });
 
+  // Create CloudWatch Dashboard
+  const dashboard = new cloudwatch.Dashboard(this, 'AppMeshEnvoyStats', {dashboardName: 'AppMeshEnvoyStatsDashboard'});    
+  //this.node.requireContext('env');
+  //const env = this.node.getContext('env');    
+  
+  // Each call to add creates a new row 
+  /*
+  dashboard.addWidgets(new GraphWidget({
+    title: "Executions vs error rate",
+
+    left: [executionCountMetric],
+
+    right: [errorCountMetric.with({
+        statistic: "average",
+        label: "Error rate",
+        color: "00FF00"
+    })]
+  }));
+
+  
+  dashboard.addWidgets(
+    this.buildEnvoyWidget('envoy_cluster_upstream_rq_total'),      // Each Widget add creates a new column
+    this.buildEnvoyWidget('envoy_cluster'),
+  );
+   dashboard.add(
+    this.buildRedshiftWidget(env, 'AvgCommitQueueTime'),
+    this.buildRedshiftWidget(env, 'AvgSkewSortRatio'),
+    this.buildRedshiftWidget(env, 'MaxSkewSortRatio'),
+    this.buildRedshiftWidget(env, 'DiskBasedQueries'),
+  );
+ 
+  private buildEnvoyWidget(metricName: string, statistic? :string = 'avg', options? :cloudwatch.MetricOptions){
+    return new cloudwatch.GraphWidget({
+      title: metricName,
+      left: [new cloudwatch.Metric({
+        namespace: 'CWAgent',
+        metricName: metricName,
+        dimensions: {
+        //  ClusterIdentifier: cdk.Fn.importValue(`${env}-PokaAnalyticsRedshift:ClusterName`)
+        [ "envoy_cluster_upstream_rq_total", "appmesh.mesh", "greeting-app-mesh", "metric_type", "counter", "envoy.cluster_name", "cds_egress_greeting-app-mesh_amazonaws", "appmesh.virtual_node", "name" ],
+        },
+        statistic: statistic,
+        unit: cloudwatch.Unit.COUNT,
+        label: metricName,
+      })]
+    })
+  }; 
+*/
 	// Send LoadBalancer DNS name to output
     new cdk.CfnOutput(this, 'ExternalDNS', {
       exportName: 'greeter-app-external',
