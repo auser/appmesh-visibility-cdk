@@ -268,7 +268,14 @@ export class MyDashboard extends cdk.Construct{
         width: 24
       })
     );
-
+	
+	// Create widgets for task count
+	this.dashboard.addWidgets(
+		buildSingleValueWidget('CPUUtilization','greeter', props.greeterService.ecsService.serviceName),
+		buildSingleValueWidget('CPUUtilization','greeting', props.greetingService.ecsService.serviceName),
+		buildSingleValueWidget('CPUUtilization','name', props.nameService.ecsService.serviceName),
+	);
+/*
     this.dashboard.addWidgets(new cloudwatch.GraphWidget({
       title: "greeter Task Count",
       width: 8,
@@ -286,83 +293,129 @@ export class MyDashboard extends cdk.Construct{
         statistic: 'n',
         period: cdk.Duration.minutes(1)
       })]
-    }),
-    new cloudwatch.GraphWidget({
-        title: "ReqCountPerTarget",
-		stacked: true,
-        left: [
-		    new cloudwatch.Metric({
-	          namespace: "AWS/ApplicationELB",
-	          metricName: "RequestCountPerTarget",
-			  label: "ALB RequestCountPerTarget",
-	          dimensions: {
-	              TargetGroup: props.targetGroup.targetGroupFullName,
-	              LoadBalancer: props.loadBalancer.loadBalancerFullName
-	          },
-	          color: '#98df8a',
-	          statistic: 'sum',
-			  unit: cloudwatch.Unit.COUNT,
-	          period: cdk.Duration.minutes(1)
-          })
-        ]
-    }),
-    new cloudwatch.GraphWidget({ 
-	    title: "greeter Task CPU/MEM",
-	    width: 8,
-	    leftYAxis: {
-	        min: 0
-	    },
-	        left: [
-	        new cloudwatch.Metric({
-	          namespace: "AWS/ECS",
-	          metricName: 'CPUUtilization',
-	          label: "CPUUtilization",
-	          dimensions: {
-	              ServiceName: props.greeterService.ecsService.serviceName,
-	              ClusterName: props.ecsCluster.clusterName
-	          },
-	          statistic: 'avg',
-	          period: cdk.Duration.minutes(1)
-	        })],
-	      right: [new cloudwatch.Metric({
-	          namespace: "AWS/ECS",
-	          metricName: 'MemoryUtilization',
-	          label: "MemoryUtilization",
-	          dimensions: {
-	              ServiceName: props.greeterService.ecsService.serviceName,
-	              ClusterName: props.ecsCluster.clusterName
-	          },
-	          statistic: 'avg',
-	          period: cdk.Duration.minutes(1)
-	      })]
-      }),
-      new cloudwatch.GraphWidget({
-        title: "TargetResponseTime (P95)",
-        left: [new cloudwatch.Metric({
-            namespace: "AWS/ApplicationELB",
-            metricName: "TargetResponseTime",
-            dimensions: {
-                TargetGroup: props.targetGroup.targetGroupFullName,
-                LoadBalancer: props.loadBalancer.loadBalancerFullName
-          },
-          color: '#2ca02c',
-          statistic: 'p95',
-          period: cdk.Duration.minutes(1)
-        })],
-        stacked: true
-      })
-    );
-		
+    }), */
+	
+	// Load Balancer stats
+    this.dashboard.addWidgets(
+		new cloudwatch.GraphWidget({
+			title: "ReqCountPerTarget",
+			stacked: true,
+			left: [
+			    new cloudwatch.Metric({
+					namespace: "AWS/ApplicationELB",
+					metricName: "RequestCountPerTarget",
+					label: "ALB RequestCountPerTarget",
+					dimensions: {
+					    TargetGroup: props.targetGroup.targetGroupFullName,
+					    LoadBalancer: props.loadBalancer.loadBalancerFullName
+					},
+					// Web colors:  https://en.wikipedia.org/wiki/Web_colors
+					color: '#98df8a',  // light green
+					statistic: 'sum',
+					unit: cloudwatch.Unit.COUNT,
+					period: cdk.Duration.minutes(1)
+					})
+			]
+		}),
+	    new cloudwatch.GraphWidget({
+			title: "TargetResponseTime (P95)",
+			stacked: true,
+			left: [
+				new cloudwatch.Metric({
+					namespace: "AWS/ApplicationELB",
+					metricName: "TargetResponseTime",
+					dimensions: {
+					    TargetGroup: props.targetGroup.targetGroupFullName,
+					    LoadBalancer: props.loadBalancer.loadBalancerFullName
+					},
+					color: '#2ca02c',  // Green
+					statistic: 'p95',
+					period: cdk.Duration.minutes(1),
+					label: "P95",
+					unit: cloudwatch.Unit.SECONDS
+			    })
+		    ]
+	  	}),
+		new cloudwatch.GraphWidget({
+			title: "TargetResponseTime (P99)",
+			stacked: true,
+			left: [
+				new cloudwatch.Metric({
+					namespace: "AWS/ApplicationELB",
+					metricName: "TargetResponseTime",
+					dimensions: {
+					    TargetGroup: props.targetGroup.targetGroupFullName,
+					    LoadBalancer: props.loadBalancer.loadBalancerFullName
+					},
+					color: '#008000',  // Dark Green
+					statistic: 'p99',
+					period: cdk.Duration.minutes(1),
+					label: "P99",
+					unit: cloudwatch.Unit.SECONDS,
+	            })
+			]
+        }),
+   );
+
+	// Create widgets for CPU/Memory stats
 	this.dashboard.addWidgets(
-	    buildEnvoyWidget('envoy_http_downstream_rq_xx', 'greeter'),      // Each Widget add creates a new column
+	    buildECSWidget('CPUUtilization','MemoryUtilization','greeter', props.greeterService.ecsService.serviceName), 
+	    buildECSWidget('CPUUtilization','MemoryUtilization','greeting', props.greetingService.ecsService.serviceName),
+		buildECSWidget('CPUUtilization','MemoryUtilization','name', props.nameService.ecsService.serviceName),
+	);
+	// Create widgets for envoy stats
+	this.dashboard.addWidgets(
+	    buildEnvoyWidget('envoy_http_downstream_rq_xx', 'greeter'), 
 	    buildEnvoyWidget('envoy_http_downstream_rq_xx', 'greeting'),
 		buildEnvoyWidget('envoy_http_downstream_rq_xx', 'name'),
 	);
+	this.dashboard.addWidgets(
+	    buildLatencyWidget('envoy_http_downstream_rq_time', 'greeter'), 
+	    buildLatencyWidget('envoy_http_downstream_rq_time', 'greeting'),
+		buildLatencyWidget('envoy_http_downstream_rq_time', 'name'),
+	);
 		
+    // A helper function to assist with creating ECS CPU/Memory stats
+	function buildECSWidget(metricNameL: string, metricNameR: string, dim: string, options :any){
+	    return new cloudwatch.GraphWidget({
+	        title: dim.concat(" Task CPU/MEM"),
+			// stacked / region
+			// leftYAxis / rightYAxis(label, max, min, showUnits)
+			// width / height / leftAnnotation / rightAnnotations
+			// {HorizontalAnnotation = value / color / fill / label / visible}
+	        left: [new cloudwatch.Metric({
+	            namespace: "AWS/ECS",
+	            metricName: metricNameL,
+				period: cdk.Duration.minutes(1),
+	            statistic: 'avg', // min, max, avg, sum, n, pNN.NN
+				// color
+	            dimensions: {
+	              		ServiceName: props.greeterService.ecsService.serviceName,
+	              		ClusterName: props.ecsCluster.clusterName
+	            },
+			    label: metricNameL,
+	            unit: cloudwatch.Unit.PERCENT,
+				//https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-cloudwatch.Unit.html
+	        })],
+			right: [new cloudwatch.Metric({
+                namespace: "AWS/ECS",
+                metricName: metricNameR,
+                label: metricNameR,
+                dimensions: {
+	              		ServiceName: options,
+	              		ClusterName: props.ecsCluster.clusterName
+                },
+                statistic: 'avg',
+                period: cdk.Duration.minutes(1),
+				unit: cloudwatch.Unit.PERCENT,
+            })]
+	    })
+	};
+
     // A helper function to assist with creating Envoy stats
 	function buildEnvoyWidget(metricName: string, dim: string, options?: cloudwatch.MetricOptions){
 	    return new cloudwatch.GraphWidget({
-	        title: "envoy_http_downstream_rq_200",
+	        title: "Downstream Response Codes",
 			// stacked / region
 			// leftYAxis / rightYAxis(label, max, min, showUnits)
 			// width / height / leftAnnotation / rightAnnotations
@@ -370,6 +423,9 @@ export class MyDashboard extends cdk.Construct{
 	        left: [new cloudwatch.Metric({
 	            namespace: 'CWAgent',
 	            metricName: metricName,
+				period: cdk.Duration.minutes(1),
+	            statistic: 'avg', // min, max, avg, sum, n, pNN.NN
+				// color
 	            dimensions: {
 	 				 	'appmesh.mesh': 'greeting-app-mesh',
 						'metric_type': 'counter',
@@ -377,21 +433,20 @@ export class MyDashboard extends cdk.Construct{
 						'appmesh.virtual_node': dim,
 						'envoy.response_code_class': '2'
 	            },
-			    label: dim.concat(" ingress"),
-	            statistic: 'avg',
-			    period: cdk.Duration.minutes(1),
+			    label: dim.concat(" 2xx Response Codes"),
 	            unit: cloudwatch.Unit.COUNT,
+				//https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-cloudwatch.Unit.html
 	        })],
 			right: [new cloudwatch.Metric({
                 namespace: "CWAgent",
                 metricName: metricName,
-                label: dim.concat(" egress"),
+                label: dim.concat(" 5xx Response Codes"),
                 dimensions: {
 	 				 	'appmesh.mesh': 'greeting-app-mesh',
 						'metric_type': 'counter',
-						'envoy.http_conn_manager_prefix': 'egress',
+						'envoy.http_conn_manager_prefix': 'ingress',
 						'appmesh.virtual_node': dim,
-						'envoy.response_code_class': '2'
+						'envoy.response_code_class': '5'
                 },
                 statistic: 'avg',
                 period: cdk.Duration.minutes(1),
@@ -399,9 +454,54 @@ export class MyDashboard extends cdk.Construct{
             })]
 	    })
 	};
-		// TODO
-		// Export Dashboard name / Print out Dashboard name
-				// console.log(this.dashboard.toString());
+
+    // A helper function to assist with creating Envoy latency stats
+	function buildLatencyWidget(metricName: string, dim: string, options?: cloudwatch.MetricOptions){
+	    return new cloudwatch.GraphWidget({
+	        title: "Ingress timing",
+			// stacked / region
+			// leftYAxis / rightYAxis(label, max, min, showUnits)
+			// width / height / leftAnnotation / rightAnnotations
+			// {HorizontalAnnotation = value / color / fill / label / visible}
+	        left: [new cloudwatch.Metric({
+	            namespace: 'CWAgent',
+	            metricName: metricName,
+				period: cdk.Duration.minutes(1),
+	            statistic: 'avg', // min, max, avg, sum, n, pNN.NN
+				// color
+	            dimensions: {
+	 				 	'appmesh.mesh': 'greeting-app-mesh',
+						'metric_type': 'timing',
+						'envoy.http_conn_manager_prefix': 'ingress',
+						'appmesh.virtual_node': dim,
+	            },
+			    label: dim.concat(" ingress (ms)"),
+	            unit: cloudwatch.Unit.MILLISECONDS,
+				//https://docs.aws.amazon.com/cdk/api/latest/docs/@aws-cdk_aws-cloudwatch.Unit.html
+	        })]
+	    })
+	};
+	
+    // A helper function to assist with creating single-value Widgets
+	function buildSingleValueWidget(metricName: string, dim: string, options: any){
+	    return new cloudwatch.SingleValueWidget({
+	        metrics: [new cloudwatch.Metric({
+	            namespace: 'AWS/ECS',
+	            metricName: metricName,
+				period: cdk.Duration.minutes(1),
+	            statistic: 'n', // min, max, avg, sum, n, pNN.NN
+				// color
+	            dimensions: {
+					// TODO: Generate Service name from dimension
+					    ServiceName: options,
+					    ClusterName: props.ecsCluster.clusterName
+	            },
+			    label: dim.concat(" Task Count"),
+	            unit: cloudwatch.Unit.COUNT
+			})
+			]
+		})
+	};
 		// end of Dashboard class
     }
 }
@@ -554,10 +654,12 @@ export class AppmeshBlogStack extends cdk.Stack {
       exportName: 'greeter-app-external',
       value: this.externalLB.loadBalancerDnsName
     });
-	// TODO. Export Dashboard name and link.
+	// TODO. Export Dashboard name and https link.
+	/*
 	new cdk.CfnOutput(this, 'DashboardName', {
 		exportName: 'dashboard-external',
 		value: this.dashboard.toString()
-	});
+	AppMeshBlogECS.DashboardName = AppMeshBlogECS/cloudwatch-dashboard
+	}); */
   }
 }
