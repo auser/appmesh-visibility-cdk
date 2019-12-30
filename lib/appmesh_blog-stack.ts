@@ -287,69 +287,68 @@ export class MyDashboard extends cdk.Construct{
         period: cdk.Duration.minutes(1)
       })]
     }),
-      new cloudwatch.GraphWidget({
+    new cloudwatch.GraphWidget({
         title: "ReqCountPerTarget",
+		stacked: true,
         left: [
-					new cloudwatch.Metric({
+		    new cloudwatch.Metric({
 	          namespace: "AWS/ApplicationELB",
 	          metricName: "RequestCountPerTarget",
-						label: "ALB RequestCountPerTarget",
+			  label: "ALB RequestCountPerTarget",
 	          dimensions: {
-	            TargetGroup: props.targetGroup.targetGroupFullName,
-	            LoadBalancer: props.loadBalancer.loadBalancerFullName
+	              TargetGroup: props.targetGroup.targetGroupFullName,
+	              LoadBalancer: props.loadBalancer.loadBalancerFullName
 	          },
 	          color: '#98df8a',
 	          statistic: 'sum',
-						unit: cloudwatch.Unit.COUNT,
+			  unit: cloudwatch.Unit.COUNT,
 	          period: cdk.Duration.minutes(1)
           })
-        ],
-        stacked: true
-      }),
-      new cloudwatch.GraphWidget({ 
-	      title: "greeter Task CPU/MEM",
-	      width: 8,
-	      leftYAxis: {
+        ]
+    }),
+    new cloudwatch.GraphWidget({ 
+	    title: "greeter Task CPU/MEM",
+	    width: 8,
+	    leftYAxis: {
 	        min: 0
-	      },
-	      left: [
+	    },
+	        left: [
 	        new cloudwatch.Metric({
 	          namespace: "AWS/ECS",
 	          metricName: 'CPUUtilization',
 	          label: "CPUUtilization",
 	          dimensions: {
-	            ServiceName: props.greeterService.ecsService.serviceName,
-	            ClusterName: props.ecsCluster.clusterName
+	              ServiceName: props.greeterService.ecsService.serviceName,
+	              ClusterName: props.ecsCluster.clusterName
 	          },
 	          statistic: 'avg',
 	          period: cdk.Duration.minutes(1)
 	        })],
 	      right: [new cloudwatch.Metric({
-	        namespace: "AWS/ECS",
-	        metricName: 'MemoryUtilization',
-	        label: "MemoryUtilization",
-	        dimensions: {
-	          ServiceName: props.greeterService.ecsService.serviceName,
-	          ClusterName: props.ecsCluster.clusterName
-	        },
-	        statistic: 'avg',
-	        period: cdk.Duration.minutes(1)
+	          namespace: "AWS/ECS",
+	          metricName: 'MemoryUtilization',
+	          label: "MemoryUtilization",
+	          dimensions: {
+	              ServiceName: props.greeterService.ecsService.serviceName,
+	              ClusterName: props.ecsCluster.clusterName
+	          },
+	          statistic: 'avg',
+	          period: cdk.Duration.minutes(1)
 	      })]
       }),
       new cloudwatch.GraphWidget({
         title: "TargetResponseTime (P95)",
         left: [new cloudwatch.Metric({
-          namespace: "AWS/ApplicationELB",
-          metricName: "TargetResponseTime",
-          dimensions: {
-            TargetGroup: props.targetGroup.targetGroupFullName,
-            LoadBalancer: props.loadBalancer.loadBalancerFullName
+            namespace: "AWS/ApplicationELB",
+            metricName: "TargetResponseTime",
+            dimensions: {
+                TargetGroup: props.targetGroup.targetGroupFullName,
+                LoadBalancer: props.loadBalancer.loadBalancerFullName
           },
           color: '#2ca02c',
           statistic: 'p95',
           period: cdk.Duration.minutes(1)
-        })
-        ],
+        })],
         stacked: true
       })
     );
@@ -363,7 +362,11 @@ export class MyDashboard extends cdk.Construct{
     // A helper function to assist with creating Envoy stats
 	function buildEnvoyWidget(metricName: string, dim: string, options?: cloudwatch.MetricOptions){
 	    return new cloudwatch.GraphWidget({
-	        title: metricName,
+	        title: "envoy_http_downstream_rq_200",
+			// stacked / region
+			// leftYAxis / rightYAxis(label, max, min, showUnits)
+			// width / height / leftAnnotation / rightAnnotations
+			// {HorizontalAnnotation = value / color / fill / label / visible}
 	        left: [new cloudwatch.Metric({
 	            namespace: 'CWAgent',
 	            metricName: metricName,
@@ -374,15 +377,15 @@ export class MyDashboard extends cdk.Construct{
 						'appmesh.virtual_node': dim,
 						'envoy.response_code_class': '2'
 	            },
-			    label: metricName,
+			    label: dim.concat(" ingress"),
 	            statistic: 'avg',
 			    period: cdk.Duration.minutes(1),
 	            unit: cloudwatch.Unit.COUNT,
 	        })],
 			right: [new cloudwatch.Metric({
-                namespace: "AWS/ECS",
-                metricName: 'MemoryUtilization',
-                label: "MemoryUtilization",
+                namespace: "CWAgent",
+                metricName: metricName,
+                label: dim.concat(" egress"),
                 dimensions: {
 	 				 	'appmesh.mesh': 'greeting-app-mesh',
 						'metric_type': 'counter',
@@ -391,7 +394,8 @@ export class MyDashboard extends cdk.Construct{
 						'envoy.response_code_class': '2'
                 },
                 statistic: 'avg',
-                period: cdk.Duration.minutes(1)
+                period: cdk.Duration.minutes(1),
+				unit: cloudwatch.Unit.COUNT,
             })]
 	    })
 	};
@@ -534,21 +538,26 @@ export class AppmeshBlogStack extends cdk.Stack {
       targets: [this.greeterService.ecsService],
 	  //targetType: elasticloadbalancingv2.TargetType.IP // Fargate
     });
-		// Create CloudWatch Dashboard
+	// Create CloudWatch Dashboard
+	
+	this.dashboard = new MyDashboard(this, 'cloudwatch-dashboard', {
+		ecsCluster: this.cluster,
+		greeterService: this.greeterService,
+		greetingService: this.greetingService,
+		nameService: this.nameService,
+		loadBalancer: this.externalLB,
+		targetGroup: tg
+	});
 		
-		this.dashboard = new MyDashboard(this, 'cloudwatch-dashboard', {
-			ecsCluster: this.cluster,
-			greeterService: this.greeterService,
-			greetingService: this.greetingService,
-			nameService: this.nameService,
-			loadBalancer: this.externalLB,
-			targetGroup: tg
-		});
-		
-		// Send LoadBalancer DNS name to output
+	// Send LoadBalancer DNS name to output
     new cdk.CfnOutput(this, 'ExternalDNS', {
       exportName: 'greeter-app-external',
       value: this.externalLB.loadBalancerDnsName
     });
+	// TODO. Export Dashboard name and link.
+	new cdk.CfnOutput(this, 'DashboardName', {
+		exportName: 'dashboard-external',
+		value: this.dashboard.toString()
+	});
   }
 }
