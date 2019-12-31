@@ -96,7 +96,7 @@ export class Ec2AppMeshService extends cdk.Construct {
         AWS_REGION: cdk.Stack.of(this).region,
 		ENABLE_ENVOY_STATS_TAGS: '1',
 		ENABLE_ENVOY_DOG_STATSD: '1',
-		ENVOY_LOG_LEVEL: 'debug'
+		ENVOY_LOG_LEVEL: 'info'
       },
       healthCheck: {
         command: [
