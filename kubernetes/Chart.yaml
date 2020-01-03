@@ -1,0 +1,7 @@
+apiVersion: v2
+description: A simple AWS App Mesh demo, that deploys two microservices. One is a load generator, the other a standard Nginx deployment.
+name: aws-appmesh-demo
+type: application
+version: 0.1.0
+appVersion: 1.0.0
+home: https://github.com/nbrandaleone/appmesh-visibility-cdk/kubernetes/

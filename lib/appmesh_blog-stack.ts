@@ -153,6 +153,7 @@ const secureStringToken = ssm.StringParameter.valueForSecureStringParameter(
         CW_CONFIG_CONTENT: '{ "logs": { "metrics_collected": {"emf": {} }}, "metrics": { "metrics_collected": { "statsd": {}}}}'
         /* 
         '{"agent": {"omit_hostname": true, \
+		"run_as_user": "cwagent",
         "region": "us-west-2", \
         "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log", \
               "debug": true}, \
