@@ -36,6 +36,7 @@ export class Ec2AppMeshService extends cdk.Construct {
   applicationContainer: ecs.ContainerDefinition;
   cwAgentContainer: ecs.ContainerDefinition;
   envoyContainer: ecs.ContainerDefinition;
+  xrayContainer: ecs.ContainerDefinition;
   virtualService: appmesh.VirtualService;
   virtualNode: appmesh.VirtualNode;
   
@@ -56,6 +57,7 @@ export class Ec2AppMeshService extends cdk.Construct {
     });
     taskIAMRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'));
     taskIAMRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AWSAppMeshEnvoyAccess'));
+	taskIAMRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess'));
     /*
     taskIAMRole.addToPolicy(new iam.PolicyStatement({
       resources: ['*'],
@@ -94,6 +96,7 @@ export class Ec2AppMeshService extends cdk.Construct {
       environment: {
         APPMESH_VIRTUAL_NODE_NAME: `mesh/${mesh.meshName}/virtualNode/${this.myServiceName}`,
         AWS_REGION: cdk.Stack.of(this).region,
+		ENABLE_ENVOY_XRAY_TRACING: '1',
 		ENABLE_ENVOY_STATS_TAGS: '1',
 		ENABLE_ENVOY_DOG_STATSD: '1',
 		ENVOY_LOG_LEVEL: 'info'
@@ -112,6 +115,21 @@ export class Ec2AppMeshService extends cdk.Construct {
       user: '1337',
       logging: new ecs.AwsLogDriver({
         streamPrefix: `${this.myServiceName}-envoy`
+      })
+    });
+	
+	// Use this for CloudWatch ServiceLens
+    this.xrayContainer = this.taskDefinition.addContainer('xray', {
+      //name: 'envoy',
+      //image: appMeshRepository,
+	  image: ecs.ContainerImage.fromRegistry("amazon/aws-xray-daemon:latest"),
+      essential: false,
+      memoryLimitMiB: 128,
+      environment: {
+        AWS_REGION: cdk.Stack.of(this).region
+        },
+      logging: new ecs.AwsLogDriver({
+        streamPrefix: `${this.myServiceName}-xray`
       })
     });
 	
@@ -165,7 +183,7 @@ const secureStringToken = ssm.StringParameter.valueForSecureStringParameter(
       }
 	  });  
 
-	// Set start-up order of containers
+	// Set start-up order of containers. START / COMPLETE / SUCCESS / HEALTHY
     this.applicationContainer.addContainerDependencies(
 		{
       	  container: this.envoyContainer,
@@ -174,7 +192,7 @@ const secureStringToken = ssm.StringParameter.valueForSecureStringParameter(
 		{
       	  container: this.cwAgentContainer,
 	  	  condition: ecs.ContainerDependencyCondition.START
-    	} 
+    	}
 	); 
 	
   this.ecsService = new ecs.Ec2Service(this, `${this.myServiceName}-service`, {
