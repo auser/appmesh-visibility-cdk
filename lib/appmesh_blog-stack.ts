@@ -564,7 +564,7 @@ export class AppmeshBlogStack extends cdk.Stack {
     // Create an App Mesh
     const mesh = new appmesh.Mesh(this, 'app-mesh', {
       meshName: 'greeting-app-mesh',
-      //egressFilter: appmesh.MeshFilterType.DROP_ALL
+      //egressFilter: appmesh.MeshFilterType.DROP_ALL or ALLOW_ALL
     });
 	
     // Add capacity to cluster

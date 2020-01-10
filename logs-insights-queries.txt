@@ -1,0 +1,69 @@
+Cloudwatch Logs Insights
+========================
+Types of performance logs: 
+ 
+Performance logs of task: 
+
+fields @message | filter Type='Task' and TaskDefinitionFamily like "AppMeshBlogECS" | limit 4
+
+stats avg(CpuUtilized), avg(MemoryUtilized) by bin (1m) as 
+period, TaskDefinitionFamily, TaskDefinitionRevision | filter Type = "Task" 
+and TaskDefinitionFamily  like "AppMeshBlogECS" | 
+sort period desc, TaskDefinitionFamily
+ 
+fields ispresent(TaskId) as hasTaskId, @message
+| filter hasTaskId and Type = "Container" and ContainerName=="app" 
+# choices for container name: app,envoy, cloudwatch0agent, xray
+| stats avg(CpuUtilized) as AvgCPU, avg(MemoryUtilized) as AvgMem, 
+avg(StorageReadBytes) as AvgStorageReadBytes, avg(StorageWriteBytes) 
+as AvgStorageWriteBytes by ContainerName, CpuReserved, MemoryReserved, TaskId, ServiceName
+| sort by AvgCPU desc
+ 
+Application logs:
+ 
+fields @timestamp, @message | filter @logStream like /b7b4351b02814f9686d08d4560a6f094/ | filter @message like /200/ | sort @timestamp desc
+| limit 20
+ 
+fields @timestamp, @message
+| filter @logStream like /b7b4351b02814f9686d08d4560a6f094/
+| field start_time, end_time, origin, http.request.user_agent | filter @message like "origin"
+| DISPLAY origin, http.request.user_agent, start_time, end_time
+| stats avg((end_time - start_time) * 1000) as AvgLatency by bin(1min) 
+| sort by AvgLatency desc
+# Look at visualization graph
+ 
+================================================================
+From ReInvent 2019 demo
+
+Performance logs of task:
+
+fields @message | filter Type='Task' 
+and TaskDefinitionFamily='frontend-task-appmesh-workshopn1' 
+| limit 1
+ 
+stats avg(CpuUtilized), avg(MemoryUtilized) by bin (1m) as 
+period, TaskDefinitionFamily, TaskDefinitionRevision | filter Type = "Task" 
+and TaskDefinitionFamily='frontend-task-appmesh-workshopn1' | 
+sort period desc, TaskDefinitionFamily  
+ 
+fields ispresent(TaskId) as hasTaskId, @message
+| filter hasTaskId and Type = "Container" and ContainerName == 'frontend-service'
+| stats avg(CpuUtilized) as AvgCPU, avg(MemoryUtilized) as AvgMem, 
+avg(StorageReadBytes) as AvgStorageReadBytes, avg(StorageWriteBytes) 
+as AvgStorageWriteBytes by ContainerName, CpuReserved, MemoryReserved, TaskId, ServiceName
+| sort by AvgCPU desc
+ 
+Application logs:
+ 
+fields @timestamp, @message
+| filter @logStream like /2d88365f-7c29-444a-8075-d61a82295153/
+| filter @message like /^I,.*Completed.*/
+| sort @timestamp desc
+| limit 20
+ 
+fields @timestamp, @message
+| filter @logStream like /2d88365f-7c29-444a-8075-d61a82295153/
+| filter @message like /^I,.*Completed.*/
+| parse @message '* Completed * OK in *ms *' as date_time, status, latency
+| stats avg(latency) as AvgLatency by bin(1min)
+| sort by AvgLatency desc
